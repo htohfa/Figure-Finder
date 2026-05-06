@@ -13,10 +13,11 @@ from foto import (
     PDFStore, FigureExtractor, FigureScorer,
     build_zip, format_authors, get_confidence, confidence_badge_class,
 )
+from foto.persistence import load_stats, log_search, log_rating
 
 st.set_page_config(
     page_title="FOTO · Figure frOm for Text & illustratiOns",
-    page_icon="🔭",
+    page_icon="🐇",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
@@ -81,6 +82,8 @@ for key, default in {
 }.items():
     if key not in st.session_state:
         st.session_state[key] = default
+    if "global_stats" not in st.session_state:
+        st.session_state.global_stats = load_stats()
 
 
 st.markdown("""

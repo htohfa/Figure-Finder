@@ -2,13 +2,12 @@ import sys
 import time
 from pathlib import Path
 
-# Ensure src/ is importable regardless of working directory (needed on Streamlit Cloud)
 sys.path.insert(0, str(Path(__file__).parent))
 
 import streamlit as st
 from anthropic import Anthropic
 
-from src import (
+from foto import (
     MODEL_LABELS, get_model, CostTracker,
     InputParser, PaperSearcher, PaperTriager,
     PDFStore, FigureExtractor, FigureScorer,

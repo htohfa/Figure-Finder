@@ -7,14 +7,15 @@ sys.path.insert(0, str(Path(__file__).parent))
 import streamlit as st
 from anthropic import Anthropic
 
-from foto.models import MODEL_LABELS, MODEL_REGISTRY, CostTracker, get_model
-from foto.parser import InputParser
-from foto.search import PaperSearcher, PaperTriager
-from foto.pipeline import PDFStore, FigureExtractor, FigureScorer
-from foto.export import build_zip, format_authors, get_confidence, confidence_badge_class
+from foto import (
+    MODEL_LABELS, get_model, CostTracker,
+    InputParser, PaperSearcher, PaperTriager,
+    PDFStore, FigureExtractor, FigureScorer,
+    build_zip, format_authors, get_confidence, confidence_badge_class,
+)
 
 st.set_page_config(
-    page_title="FOTO · Figure frOm Text & illustratiOn",
+    page_title="FOTO · Figure Observatory for Text & Optics",
     page_icon="🔭",
     layout="wide",
     initial_sidebar_state="collapsed",
@@ -76,7 +77,7 @@ for key, default in {
     "results": None,
     "running": False,
     "log": [],
-    "tally": {"found": 0, "not_found": 0, "ratings": []},
+    "tally": {"searches": 0, "ratings": []},
 }.items():
     if key not in st.session_state:
         st.session_state[key] = default
@@ -84,10 +85,10 @@ for key, default in {
 
 st.markdown("""
 <div class="foto-header">
-  <p class="foto-subtitle">Figure frOm Text & illustratiOn </p>
+  <p class="foto-subtitle">Figure Observatory for Text &amp; Optics</p>
   <h1 class="foto-title">FOTO<em>.</em></h1>
   <p class="foto-tagline">
-    Describe a scientific figure in words, upload a sketch, or both —
+    Describe a scientific figure in words, upload a sketch, or both 
     and FOTO searches the literature to find it.
   </p>
 </div>
@@ -104,7 +105,7 @@ with col_left:
     api_key = st.text_input("Anthropic API Key", type="password", label_visibility="collapsed", placeholder="sk-ant-...")
 
     st.markdown('<p class="section-label" style="margin-top:0.8rem;">Semantic Scholar Key (optional)</p>', unsafe_allow_html=True)
-    s2_key = st.text_input("S2 Key", type="password", label_visibility="collapsed", placeholder="(optional)")
+    s2_key = st.text_input("S2 Key", type="password", label_visibility="collapsed", placeholder="(Recommended)")
 
     st.markdown('<p class="section-label" style="margin-top:1.5rem;">Describe the figure</p>', unsafe_allow_html=True)
     user_text = st.text_area(
@@ -127,7 +128,7 @@ with col_right:
   <div style="font-size: 3rem; margin-bottom: 1rem;">🔭</div>
   <div style="font-family: 'DM Mono', monospace; font-size: 0.75rem; letter-spacing: 0.1em; text-transform: uppercase;">Results will appear here</div>
   <div style="margin-top: 0.8rem; font-size: 0.85rem; max-width: 300px; margin-left: auto; margin-right: auto; line-height: 1.6;">
-    Enter a description, an optional sketch, and your API key — then hit Search.
+    Enter a description, an optional sketch, and your API key then hit Search (On average per search cost 20-30¢).
   </div>
 </div>
 """, unsafe_allow_html=True)
@@ -194,9 +195,9 @@ if run_btn:
                     if pdf_bytes:
                         paper["_pdf_bytes"] = pdf_bytes
                         downloaded.append(paper)
-                        log(f"  ✓ [{reason}] {paper.get('title','')[:60]}")
+                        log(f"  ✓  {paper.get('title','')[:60]}")
                     else:
-                        log(f"  ✗ [{reason}] {paper.get('title','')[:60]}")
+                        log(f"  ✗ {paper.get('title','')[:60]}")
                     time.sleep(0.5)
                 progress_placeholder.empty()
                 log(f"✓ {len(downloaded)} PDFs ready")
@@ -333,31 +334,31 @@ if st.session_state.results and st.session_state.results.get("matches"):
 </div>
 """, unsafe_allow_html=True)
 
-    fb_col1, fb_col2 = st.columns(2)
-    with fb_col1:
-        found = st.radio("Did you find the figure you were looking for?", options=["Yes", "No"], horizontal=True)
-    with fb_col2:
-        rating = st.select_slider("How well did the top result match?", options=[1, 2, 3, 4, 5], value=3)
+    rating = st.select_slider(
+        "Was one of the top matches what you were looking for? (1 = not at all, 5 = perfect match)",
+        options=[1, 2, 3, 4, 5],
+        value=3,
+    )
 
     if st.button("Submit feedback", key="submit_feedback"):
-        st.session_state.tally["found" if found == "Yes" else "not_found"] += 1
         st.session_state.tally["ratings"].append(rating)
-        st.success("Thanks! Feedback recorded.")
+        st.session_state.tally["searches"] += 1
+        st.success("Thanks!")
 
 
-# Tally
+# Persistent tally — always visible
 tally = st.session_state.tally
-n_total = tally["found"] + tally["not_found"]
-if n_total > 0:
-    avg_rating = sum(tally["ratings"]) / len(tally["ratings"]) if tally["ratings"] else 0
-    success_rate = int(100 * tally["found"] / n_total)
-    st.markdown(f"""
+n_ratings = len(tally["ratings"])
+avg = sum(tally["ratings"]) / n_ratings if n_ratings else 0
+searches = tally.get("searches", 0)
+
+st.markdown(f"""
 <div class="tally-box">
-  <div class="tally-title">Session tally</div>
+  <div class="tally-title">Session stats</div>
   <div class="tally-row">
-    <div class="stat-item"><div class="tally-num">{n_total}</div><div class="tally-label">Searches</div></div>
-    <div class="stat-item"><div class="tally-num">{success_rate}%</div><div class="tally-label">Found it</div></div>
-    <div class="stat-item"><div class="tally-num">{avg_rating:.1f}</div><div class="tally-label">Avg rating</div></div>
+    <div class="stat-item"><div class="tally-num">{searches}</div><div class="tally-label">Searches</div></div>
+    <div class="stat-item"><div class="tally-num">{n_ratings}</div><div class="tally-label">Rated</div></div>
+    <div class="stat-item"><div class="tally-num">{"—" if not n_ratings else f"{avg:.1f}"}</div><div class="tally-label">Avg score</div></div>
   </div>
 </div>
 """, unsafe_allow_html=True)

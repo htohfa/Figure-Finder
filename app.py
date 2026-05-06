@@ -16,7 +16,7 @@ from foto import (
 from foto.persistence import load_stats, log_search, log_rating
 
 st.set_page_config(
-    page_title="FOTO · Figure frOm for Text & illustratiOns",
+    page_title="FOTO",
     page_icon="🐇",
     layout="wide",
     initial_sidebar_state="collapsed",
@@ -89,7 +89,6 @@ for key, default in {
 st.markdown("""
 <div class="foto-header">
   <p class="foto-subtitle">Figure frOm for Text & illustratiOns</p>
-  <h1 class="foto-title">FOTO<em>.</em></h1>
   <p class="foto-tagline">
     Describe a scientific figure in words, upload a sketch, or both 
     and FOTO searches the literature to find it.

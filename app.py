@@ -14,7 +14,7 @@ from foto.pipeline import PDFStore, FigureExtractor, FigureScorer
 from foto.export import build_zip, format_authors, get_confidence, confidence_badge_class
 
 st.set_page_config(
-    page_title="FOTO · Figure Observatory for Text & Optics",
+    page_title="FOTO · Figure frOm Text & illustratiOn",
     page_icon="🔭",
     layout="wide",
     initial_sidebar_state="collapsed",
@@ -84,7 +84,7 @@ for key, default in {
 
 st.markdown("""
 <div class="foto-header">
-  <p class="foto-subtitle">Figure Observatory for Text &amp; Optics</p>
+  <p class="foto-subtitle">Figure frOm Text & illustratiOn </p>
   <h1 class="foto-title">FOTO<em>.</em></h1>
   <p class="foto-tagline">
     Describe a scientific figure in words, upload a sketch, or both —

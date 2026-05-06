@@ -116,7 +116,8 @@ with col_left:
     st.markdown('<p class="section-label" style="margin-top:0.8rem;">Upload a sketch (optional)</p>', unsafe_allow_html=True)
     sketch_file = st.file_uploader("Sketch", type=["png", "jpg", "jpeg", "webp"], label_visibility="collapsed")
 
-    run_verify = st.checkbox("Run secondary verification pass (slower, more accurate)", value=True)
+    run_verify = st.checkbox("Secondary verification — recommended, adds ~$0.05", value=True)
+    st.markdown('<p style="font-size:0.78rem;color:#888;margin-top:-0.8rem;margin-left:1.8rem;">Uses a smarter model to double-check top matches. Best results, small extra cost.</p>', unsafe_allow_html=True)
     num_papers = st.slider("Papers to search", min_value=5, max_value=50, value=20, step=5)
 
     run_btn = st.button("🔭  Search", use_container_width=True, type="primary", disabled=st.session_state.running)

@@ -177,10 +177,10 @@ if run_btn:
                     log(f"  Plot type: {spec['plot_type']}")
 
                 # Search
-                log("⟳ Searching papers...")
                 searcher = PaperSearcher(s2_key=s2_key or None)
-                all_papers = searcher.combined_search(query, limit=num_papers)
-                log(f"  {len(all_papers)} unique papers found")
+                all_papers = searcher.expanded_search(
+                    query, client, model_cfg.smart, tracker, log=log)
+                log(f"✓ {len(all_papers)} unique papers found")
 
                 # Triage
                 log("⟳ Triaging with Claude...")

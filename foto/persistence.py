@@ -51,11 +51,12 @@ def log_rating(rating: int):
     try:
         sheet = _get_sheet()
         all_rows = sheet.get_all_values()
-        # Find last row with empty rating and fill it, else append
+        # Skip header row, find last data row with empty rating
         for i in range(len(all_rows) - 1, 0, -1):
-            if len(all_rows[i]) < 6 or all_rows[i][5] == "":
+            row = all_rows[i]
+            # Check if this row has search data but no rating
+            if row[0] and (len(row) < 6 or row[5] == ""):
                 sheet.update_cell(i + 1, 6, rating)
                 return
-        sheet.append_row(["", "", "", "", "", rating])
     except Exception:
         pass

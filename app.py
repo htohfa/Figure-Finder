@@ -15,7 +15,7 @@ from foto import (
 )
 
 st.set_page_config(
-    page_title="FOTO · Figure Observatory for Text & Optics",
+    page_title="FOTO · Figure frOm for Text & illustratiOns",
     page_icon="🔭",
     layout="wide",
     initial_sidebar_state="collapsed",
@@ -85,7 +85,7 @@ for key, default in {
 
 st.markdown("""
 <div class="foto-header">
-  <p class="foto-subtitle">Figure Observatory for Text &amp; Optics</p>
+  <p class="foto-subtitle">Figure frOm for Text & illustratiOns</p>
   <h1 class="foto-title">FOTO<em>.</em></h1>
   <p class="foto-tagline">
     Describe a scientific figure in words, upload a sketch, or both 

@@ -1,3 +1,4 @@
+from .persistence import load_stats, log_search, log_rating
 
 from .models import MODEL_LABELS, MODEL_REGISTRY, CostTracker, get_model
 

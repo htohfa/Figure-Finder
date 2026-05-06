@@ -7,12 +7,11 @@ sys.path.insert(0, str(Path(__file__).parent))
 import streamlit as st
 from anthropic import Anthropic
 
-from foto import (
-    MODEL_LABELS, get_model, CostTracker,
-    InputParser, PaperSearcher, PaperTriager,
-    PDFStore, FigureExtractor, FigureScorer,
-    build_zip, format_authors, get_confidence, confidence_badge_class,
-)
+from foto.models import MODEL_LABELS, MODEL_REGISTRY, CostTracker, get_model
+from foto.parser import InputParser
+from foto.search import PaperSearcher, PaperTriager
+from foto.pipeline import PDFStore, FigureExtractor, FigureScorer
+from foto.export import build_zip, format_authors, get_confidence, confidence_badge_class
 
 st.set_page_config(
     page_title="FOTO · Figure Observatory for Text & Optics",

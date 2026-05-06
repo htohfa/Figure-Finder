@@ -256,6 +256,8 @@ if run_btn:
                     "n_papers": len(downloaded),
                     "n_figures": len(all_figures),
                 }
+                log_search(query, len(downloaded), len(verified), total_cost)
+                st.session_state.global_stats["searches"] += 1
 
             except Exception as e:
                 log(f"✗ Error: {e}")
@@ -342,22 +344,21 @@ if st.session_state.results and st.session_state.results.get("matches"):
     )
 
     if st.button("Submit feedback", key="submit_feedback"):
-        st.session_state.tally["ratings"].append(rating)
-        st.session_state.tally["searches"] += 1
+        log_rating(rating)
+        st.session_state.global_stats["ratings"].append(rating)
         st.success("Thanks!")
 
 
-# Persistent tally — always visible
-tally = st.session_state.tally
-n_ratings = len(tally["ratings"])
-avg = sum(tally["ratings"]) / n_ratings if n_ratings else 0
-searches = tally.get("searches", 0)
+# Persistent tally
+stats = st.session_state.global_stats
+n_ratings = len(stats["ratings"])
+avg = sum(stats["ratings"]) / n_ratings if n_ratings else 0
 
 st.markdown(f"""
 <div class="tally-box">
-  <div class="tally-title">Session stats</div>
+  <div class="tally-title">Overall stats</div>
   <div class="tally-row">
-    <div class="stat-item"><div class="tally-num">{searches}</div><div class="tally-label">Searches</div></div>
+    <div class="stat-item"><div class="tally-num">{stats['searches']}</div><div class="tally-label">Searches</div></div>
     <div class="stat-item"><div class="tally-num">{n_ratings}</div><div class="tally-label">Rated</div></div>
     <div class="stat-item"><div class="tally-num">{"—" if not n_ratings else f"{avg:.1f}"}</div><div class="tally-label">Avg score</div></div>
   </div>

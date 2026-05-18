@@ -68,11 +68,15 @@ html, body, [class*="css"] { font-family: 'Inter', sans-serif; font-weight: 300;
 div[data-testid="stSelectbox"] label,
 div[data-testid="stTextInput"] label,
 div[data-testid="stCheckbox"] label { font-family: 'DM Mono', monospace; font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase; color: #888; }
+
+.pathfinder-row { display: flex; align-items: center; gap: 0.5rem; }
+.pathfinder-cite { font-family: 'DM Mono', monospace; font-size: 0.7rem; color: #888; }
+.pathfinder-cite a { color: #888; text-decoration: underline; }
 </style>
 """, unsafe_allow_html=True)
 
 
-# Session state
+# Per-session state for caching, run status, log buffer, and feedback tally
 for key, default in {
     "pdf_cache": {},
     "results": None,
@@ -107,7 +111,7 @@ with col_left:
     api_key = st.text_input("Anthropic API Key", type="password", label_visibility="collapsed", placeholder="sk-ant-...")
 
     st.markdown('<p class="section-label" style="margin-top:0.8rem;">Semantic Scholar Key (optional)</p>', unsafe_allow_html=True)
-    s2_key = st.text_input("S2 Key", type="password", label_visibility="collapsed", placeholder="(Recommended)")
+    s2_key = st.text_input("S2 Key", type="password", label_visibility="collapsed", placeholder="(Recommended for keyword fallback)")
 
     st.markdown('<p class="section-label" style="margin-top:1.5rem;">Describe the figure</p>', unsafe_allow_html=True)
     user_text = st.text_area(
@@ -117,6 +121,34 @@ with col_left:
 
     st.markdown('<p class="section-label" style="margin-top:0.8rem;">Upload a sketch (optional)</p>', unsafe_allow_html=True)
     sketch_file = st.file_uploader("Sketch", type=["png", "jpg", "jpeg", "webp"], label_visibility="collapsed")
+
+    # Pathfinder toggle + inline citation link
+    pf_col1, pf_col2 = st.columns([2, 3])
+    with pf_col1:
+        use_pathfinder = st.checkbox("Use Pathfinder", value=True)
+    with pf_col2:
+        st.markdown(
+            '<div class="pathfinder-cite" style="padding-top:0.55rem;">'
+            'based on <a href="https://arxiv.org/abs/2408.01556" target="_blank">arXiv:2408.01556</a>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+
+    # OpenAI key only needed when Pathfinder is active (used to embed queries
+    # with text-embedding-3-small against the Pathfinder corpus)
+    openai_key = None
+    if use_pathfinder:
+        st.markdown('<p class="section-label" style="margin-top:0.6rem;">OpenAI API Key</p>', unsafe_allow_html=True)
+        openai_key = st.text_input(
+            "OpenAI Key", type="password", label_visibility="collapsed",
+            placeholder="sk-...",
+        )
+        st.markdown(
+            '<p style="font-size:0.78rem;color:#888;margin-top:-0.4rem;">'
+            'Used to embed queries with text-embedding-3-small (~$0.40 per million queries).'
+            '</p>',
+            unsafe_allow_html=True,
+        )
 
     run_verify = st.checkbox("Secondary verification — recommended, adds ~$0.05", value=True)
     st.markdown('<p style="font-size:0.78rem;color:#888;margin-top:-0.8rem;margin-left:1.8rem;">Uses a smarter model to double-check top matches. Best results, small extra cost.</p>', unsafe_allow_html=True)
@@ -137,10 +169,12 @@ with col_right:
 """, unsafe_allow_html=True)
 
 
-# Pipeline
+# Full pipeline runs on button press
 if run_btn:
     if not api_key:
         st.error("Please enter your Anthropic API key.")
+    elif use_pathfinder and not openai_key:
+        st.error("Pathfinder is checked — please enter your OpenAI API key, or uncheck Pathfinder to use keyword search.")
     elif not user_text and not sketch_file:
         st.error("Please enter a description or upload a sketch (or both).")
     else:
@@ -166,7 +200,7 @@ if run_btn:
             st.session_state.log = []
 
             try:
-                # Parse input
+                # Parse text + optional sketch into a structured search spec
                 log("⟳ Parsing your description...")
                 parser = InputParser(client, model_cfg.smart, tracker)
                 spec = parser.parse(text=user_text or None, sketch_bytes=sketch_bytes)
@@ -175,13 +209,16 @@ if run_btn:
                 if spec.get("plot_type"):
                     log(f"  Plot type: {spec['plot_type']}")
 
-                # Search
+                # Pathfinder semantic retrieval, or legacy keyword expansion as fallback
                 searcher = PaperSearcher(s2_key=s2_key or None)
-                all_papers = searcher.expanded_search(
-                    query, client, model_cfg.smart, tracker, log=log)
+                if use_pathfinder:
+                    all_papers = searcher.expanded_search_pathfinder(query, openai_key, log=log)
+                else:
+                    all_papers = searcher.expanded_search(
+                        query, client, model_cfg.smart, tracker, log=log)
                 log(f"✓ {len(all_papers)} unique papers found")
 
-                # Triage
+                # Abstract-level relevance filter to cut downstream cost
                 log("⟳ Triaging with Claude...")
                 triager = PaperTriager(client, model_cfg.cheap, tracker)
                 triaged = triager.triage(all_papers, spec)
@@ -189,7 +226,7 @@ if run_btn:
                 log(f"✓ {len(top)} papers passed triage")
                 paper_lookup = {p["paperId"]: p for p in top}
 
-                # Fetch PDFs
+                # PDF fetch with arxiv-first URL preference, polite spacing
                 log("⟳ Fetching PDFs...")
                 downloaded = []
                 for i, paper in enumerate(top):
@@ -205,7 +242,7 @@ if run_btn:
                 progress_placeholder.empty()
                 log(f"✓ {len(downloaded)} PDFs ready")
 
-                # Extract figures
+                # Pull raster figures + captions from each PDF, then caption pre-filter
                 log("⟳ Extracting figures...")
                 extractor = FigureExtractor()
                 all_figures = []
@@ -219,7 +256,7 @@ if run_btn:
                 filtered = extractor.caption_filter(all_figures, query)
                 log(f"  {len(filtered)} figures after caption filter (from {len(all_figures)} total)")
 
-                # Primary scoring
+                # Cheap vision pass: score every surviving figure against the spec
                 log(f"⟳ Scoring {len(filtered)} figures...")
                 scorer = FigureScorer(client, model_cfg.cheap, tracker)
                 primary_matches = []
@@ -231,7 +268,7 @@ if run_btn:
                 progress_placeholder.empty()
                 log(f"✓ {len(primary_matches)} primary matches")
 
-                # Verification
+                # Optional smart-model verification on figures that passed primary scoring
                 verified = primary_matches
                 if run_verify and primary_matches:
                     log(f"⟳ Verifying {len(primary_matches)} matches...")
@@ -270,7 +307,7 @@ if run_btn:
         st.rerun()
 
 
-# Results
+# Render results: stats row, downloadable zip, then per-figure cards with metadata
 if st.session_state.results:
     res = st.session_state.results
     matches = res["matches"]
@@ -331,7 +368,7 @@ if st.session_state.results:
                 st.markdown("---")
 
 
-# Feedback
+# Post-search feedback slider; submission logs to persistence layer
 if st.session_state.results and st.session_state.results.get("matches"):
     st.markdown("""
 <div class="feedback-box">
@@ -351,7 +388,7 @@ if st.session_state.results and st.session_state.results.get("matches"):
         st.success("Thanks!")
 
 
-# Persistent tally
+# Aggregate stats across all sessions, loaded from persistence
 stats = st.session_state.global_stats
 n_ratings = len(stats["ratings"])
 avg = sum(stats["ratings"]) / n_ratings if n_ratings else 0

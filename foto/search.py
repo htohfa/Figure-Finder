@@ -146,6 +146,8 @@ class PaperSearcher:
         return scored[:top_n]
 
     def expanded_search(self, query: str, client, model: str, tracker, log=None) -> list[dict]:
+        """Keyword-based retrieval with 3 rounds of LLM-driven query expansion.
+        Used as fallback when Pathfinder semantic search is disabled."""
         def _log(msg):
             if log:
                 log(msg)
@@ -153,7 +155,7 @@ class PaperSearcher:
         seen_ids, seen_titles = set(), set()
         all_results = []
 
-        # Round 1: expanded queries from Claude
+        # Round 1: LLM expands the original query into subfield-specific variants
         try:
             response = client.messages.create(
                 model=model, max_tokens=200,
@@ -175,7 +177,7 @@ class PaperSearcher:
 
         _log(f"  {len(all_results)} papers after round 1")
 
-        # Round 2: author search
+        # Round 2: pull recent papers from top citation-weighted authors
         top_authors = self._top_authors(all_results)
         if top_authors:
             for author in top_authors:
@@ -185,7 +187,7 @@ class PaperSearcher:
                 time.sleep(1)
             _log(f"  {len(all_results)} papers after author search")
 
-        # Round 3: adjacent topics from landmarks
+        # Round 3: LLM proposes adjacent subfields based on landmark titles
         landmarks = self._landmarks(all_results)
         if landmarks:
             titles = "\n".join(f"- {p['title']}" for p in landmarks)
@@ -209,6 +211,20 @@ class PaperSearcher:
 
         all_results.sort(key=lambda p: -(p.get("citationCount", 0) or 0))
         return all_results
+
+    def expanded_search_pathfinder(self, query: str, openai_key: str, log=None) -> list[dict]:
+        """Semantic retrieval against the Pathfinder corpus (Iyer et al. 2024,
+        arXiv:2408.01556). Embeds query with text-embedding-3-small, returns
+        top-K papers by FAISS similarity over precomputed embeddings."""
+        from .pathfinder_search import PathfinderSearcher
+
+        if log:
+            log("⟳ Semantic search via Pathfinder corpus...")
+        searcher = PathfinderSearcher(openai_key=openai_key)
+        results = searcher.search(query, limit=50)
+        if log:
+            log(f"  ✓ {len(results)} papers retrieved (semantic similarity)")
+        return results
 
 
 class PaperTriager:

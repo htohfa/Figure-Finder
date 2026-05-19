@@ -1,6 +1,7 @@
 import sys
 import time
 from pathlib import Path
+import os
 
 sys.path.insert(0, str(Path(__file__).parent))
 
@@ -108,11 +109,17 @@ with col_left:
     model_label = st.selectbox("Model", options=MODEL_LABELS, label_visibility="collapsed")
 
     st.markdown('<p class="section-label" style="margin-top:1.2rem;">Anthropic API Key</p>', unsafe_allow_html=True)
-    api_key = st.text_input("Anthropic API Key", type="password", label_visibility="collapsed", placeholder="sk-ant-...")
-
+    api_key = st.text_input(
+        "Anthropic API Key", type="password", label_visibility="collapsed",
+        placeholder="sk-ant-...",
+        value=os.environ.get("ANTHROPIC_API_KEY", ""),
+    )
     st.markdown('<p class="section-label" style="margin-top:0.8rem;">Semantic Scholar Key (optional)</p>', unsafe_allow_html=True)
-    s2_key = st.text_input("S2 Key", type="password", label_visibility="collapsed", placeholder="(Recommended for keyword fallback)")
-
+    s2_key = st.text_input(
+        "S2 Key", type="password", label_visibility="collapsed",
+        placeholder="(Recommended for keyword fallback)",
+        value=os.environ.get("S2_API_KEY", ""),
+    )
     st.markdown('<p class="section-label" style="margin-top:1.5rem;">Describe the figure</p>', unsafe_allow_html=True)
     user_text = st.text_area(
         "Figure description", label_visibility="collapsed", height=120,
@@ -140,9 +147,10 @@ with col_left:
     if use_pathfinder:
         st.markdown('<p class="section-label" style="margin-top:0.6rem;">OpenAI API Key</p>', unsafe_allow_html=True)
         openai_key = st.text_input(
-            "OpenAI Key", type="password", label_visibility="collapsed",
-            placeholder="sk-...",
-        )
+        "OpenAI Key", type="password", label_visibility="collapsed",
+        placeholder="sk-...",
+        value=os.environ.get("OPENAI_API_KEY", ""),
+    )
         st.markdown(
             '<p style="font-size:0.78rem;color:#888;margin-top:-0.4rem;">'
             'Used to embed queries with text-embedding-3-small (~$0.40 per million queries).'

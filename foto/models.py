@@ -13,7 +13,8 @@ class ModelConfig:
     triage_max_tokens: int = 200
     score_max_tokens: int = 600
     verify_max_tokens: int = 800
-    batch_size: int = 1
+    triage_batch_size: int = 1
+    score_batch_size: int = 1
     estimated_time: str = ""
 
 
@@ -28,8 +29,9 @@ MODEL_REGISTRY = [
         triage_max_tokens=150,
         score_max_tokens=400,
         verify_max_tokens=500,
-        batch_size= 5,
-        estimated_time="~2 min",
+        triage_batch_size=5,
+        score_batch_size=5,
+        estimated_time="~ 3 min",
     ),
     ModelConfig(
         label="Claude Haiku 4.5  (paid · ~1 min)",
@@ -41,8 +43,9 @@ MODEL_REGISTRY = [
         triage_max_tokens=150,
         score_max_tokens=400,
         verify_max_tokens=500,
-        batch_size= 5,
-        estimated_time="~1 min",
+        triage_batch_size=5,
+        score_batch_size=5,
+        estimated_time="~3 min",
     ),
     ModelConfig(
         label="Gemini 2.5 Flash-Lite  (free · ~4 min)",
@@ -55,8 +58,9 @@ MODEL_REGISTRY = [
         triage_max_tokens=2000,
         score_max_tokens=4000,
         verify_max_tokens=3000,
-        batch_size=5,
-        estimated_time="~4 min",
+        triage_batch_size=5,
+        score_batch_size=1,
+        estimated_time="~6 min",
     ),
     ModelConfig(
         label="Gemini 2.5 Flash  (free · ~5 min)",
@@ -69,7 +73,8 @@ MODEL_REGISTRY = [
         triage_max_tokens=2000,
         score_max_tokens=4000,
         verify_max_tokens=3000,
-        batch_size=5,
+        triage_batch_size=5,
+        score_batch_size=1,
         estimated_time="~5 min",
     ),
     ModelConfig(
@@ -82,11 +87,11 @@ MODEL_REGISTRY = [
         triage_max_tokens=300,
         score_max_tokens=600,
         verify_max_tokens=800,
-        batch_size=1,
+        triage_batch_size=1,
+        score_batch_size=1,
         estimated_time="~3 min",
     ),
 ]
-
 
 MODEL_LABELS = [m.label for m in MODEL_REGISTRY]
 

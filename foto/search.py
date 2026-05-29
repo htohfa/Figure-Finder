@@ -9,6 +9,25 @@ import requests
 from .parser import parse_json
 
 
+TRIAGE_PROMPT_BATCH = '''You are evaluating whether papers likely contain a figure a researcher is looking for.
+
+Science topic: "{science_query}"
+{plot_type_line}
+
+Below are {n} papers numbered 1 to {n}. For each paper, decide if it likely contains a matching figure.
+
+{papers}
+
+CRITICAL: Respond with a JSON array of EXACTLY {n} objects, one per paper in the same order. No wrapper object, no markdown, no preamble. Output must start with `[` and end with `]`.
+
+Each object must have this shape:
+{{"relevant": true|false, "confidence": 0.0-1.0, "reason": "one sentence"}}
+
+Example for 2 papers:
+[{{"relevant": true, "confidence": 0.8, "reason": "..."}}, {{"relevant": false, "confidence": 0.3, "reason": "..."}}]'''
+
+
+
 TRIAGE_PROMPT_SINGLE = '''You are evaluating whether a paper likely contains the figure a researcher is looking for.
 
 Science topic: "{science_query}"

@@ -1,42 +1,92 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass
 class ModelConfig:
     label: str
-    smart: str  # used for parsing and verification
-    cheap: str  # used for triage and primary scoring
-    prices: dict = field(default_factory=dict)
+    model_id: str
+    provider: str
+    api_help_url: str
+    api_help_text: str
+    prices: dict
+    free_tier: bool = False
+    triage_max_tokens: int = 200
+    score_max_tokens: int = 600
+    verify_max_tokens: int = 800
+    batch_size: int = 1
+    estimated_time: str = ""
 
 
-# Add new models here - that's the only thing you need to touch
 MODEL_REGISTRY = [
     ModelConfig(
-        label="Haiku 4.5  (fast · cheap)",
-        smart="claude-haiku-4-5-20251001",
-        cheap="claude-haiku-4-5-20251001",
-        prices={
-            "claude-haiku-4-5-20251001": {"input": 1.00, "output": 5.00},
-        },
+        label="Claude Sonnet 4.5  (paid · ~2 min)",
+        model_id="claude-sonnet-4-5-20250929",
+        provider="anthropic",
+        api_help_url="https://console.anthropic.com/settings/keys",
+        api_help_text="Go to this website and get your API key there.",
+        prices={"input": 3.00, "output": 15.00},
+        triage_max_tokens=150,
+        score_max_tokens=400,
+        verify_max_tokens=500,
+        batch_size=1,
+        estimated_time="~2 min",
     ),
     ModelConfig(
-        label="Sonnet 4.5  (balanced)",
-        smart="claude-sonnet-4-5-20250929",
-        cheap="claude-haiku-4-5-20251001",
-        prices={
-            "claude-sonnet-4-5-20250929": {"input": 3.00, "output": 15.00},
-            "claude-haiku-4-5-20251001":  {"input": 1.00, "output": 5.00},
-        },
+        label="Claude Haiku 4.5  (paid · ~1 min)",
+        model_id="claude-haiku-4-5-20251001",
+        provider="anthropic",
+        api_help_url="https://console.anthropic.com/settings/keys",
+        api_help_text="Go to this website and get your API key there.",
+        prices={"input": 1.00, "output": 5.00},
+        triage_max_tokens=150,
+        score_max_tokens=400,
+        verify_max_tokens=500,
+        batch_size=1,
+        estimated_time="~1 min",
     ),
     ModelConfig(
-        label="Sonnet 4.5  (both smart)",
-        smart="claude-sonnet-4-5-20250929",
-        cheap="claude-sonnet-4-5-20250929",
-        prices={
-            "claude-sonnet-4-5-20250929": {"input": 3.00, "output": 15.00},
-        },
+        label="Gemini 2.5 Flash-Lite  (free · ~4 min)",
+        model_id="gemini-2.5-flash-lite",
+        provider="gemini",
+        api_help_url="https://ai.google.dev/gemini-api/docs/api-key",
+        api_help_text="Go to this website and get your API key for free.",
+        prices={"input": 0.0, "output": 0.0},
+        free_tier=True,
+        triage_max_tokens=2000,
+        score_max_tokens=4000,
+        verify_max_tokens=3000,
+        batch_size=5,
+        estimated_time="~4 min",
+    ),
+    ModelConfig(
+        label="Gemini 2.5 Flash  (free · ~5 min)",
+        model_id="gemini-2.5-flash",
+        provider="gemini",
+        api_help_url="https://ai.google.dev/gemini-api/docs/api-key",
+        api_help_text="Go to this website and get your API key for free.",
+        prices={"input": 0.0, "output": 0.0},
+        free_tier=True,
+        triage_max_tokens=2000,
+        score_max_tokens=4000,
+        verify_max_tokens=3000,
+        batch_size=5,
+        estimated_time="~5 min",
+    ),
+    ModelConfig(
+        label="DeepSeek V3  (5M token trial · then paid · text-only)",
+        model_id="deepseek-chat",
+        provider="deepseek",
+        api_help_url="https://platform.deepseek.com/api_keys",
+        api_help_text="Go to this website and get your API key. New accounts get 5M free tokens.",
+        prices={"input": 0.27, "output": 1.10},
+        triage_max_tokens=300,
+        score_max_tokens=600,
+        verify_max_tokens=800,
+        batch_size=1,
+        estimated_time="~3 min",
     ),
 ]
+
 
 MODEL_LABELS = [m.label for m in MODEL_REGISTRY]
 
@@ -48,23 +98,30 @@ def get_model(label: str) -> ModelConfig:
     raise ValueError(f"Unknown model label: {label}")
 
 
+PROVIDER_DISPLAY = {
+    "anthropic": "Anthropic API Key",
+    "gemini": "Google Gemini API Key",
+    "deepseek": "DeepSeek API Key",
+}
+
+
 class CostTracker:
-    def __init__(self, prices: dict):
-        self.prices = prices
+    def __init__(self):
         self.log = []
 
-    def record(self, stage: str, model: str, response):
+    def record(self, stage: str, model_id: str, prices: dict, input_tokens: int, output_tokens: int):
         self.log.append({
             "stage": stage,
-            "model": model,
-            "input_tokens": response.usage.input_tokens,
-            "output_tokens": response.usage.output_tokens,
+            "model": model_id,
+            "prices": prices,
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
         })
 
     def total(self) -> float:
         cost = 0.0
         for entry in self.log:
-            p = self.prices.get(entry["model"], {"input": 0, "output": 0})
-            cost += (entry["input_tokens"] / 1e6) * p["input"]
-            cost += (entry["output_tokens"] / 1e6) * p["output"]
+            p = entry["prices"]
+            cost += (entry["input_tokens"] / 1e6) * p.get("input", 0)
+            cost += (entry["output_tokens"] / 1e6) * p.get("output", 0)
         return cost

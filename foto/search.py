@@ -6,26 +6,7 @@ from typing import Optional
 
 import requests
 
-from .parser import parse_json
-
-
-TRIAGE_PROMPT_BATCH = '''You are evaluating whether papers likely contain a figure a researcher is looking for.
-
-Science topic: "{science_query}"
-{plot_type_line}
-
-Below are {n} papers numbered 1 to {n}. For each paper, decide if it likely contains a matching figure.
-
-{papers}
-
-CRITICAL: Respond with a JSON array of EXACTLY {n} objects, one per paper in the same order. No wrapper object, no markdown, no preamble. Output must start with `[` and end with `]`.
-
-Each object must have this shape:
-{{"relevant": true|false, "confidence": 0.0-1.0, "reason": "one sentence"}}
-
-Example for 2 papers:
-[{{"relevant": true, "confidence": 0.8, "reason": "..."}}, {{"relevant": false, "confidence": 0.3, "reason": "..."}}]'''
-
+from .parser import parse_json, parse_batch_results
 
 
 TRIAGE_PROMPT_SINGLE = '''You are evaluating whether a paper likely contains the figure a researcher is looking for.
@@ -44,12 +25,17 @@ TRIAGE_PROMPT_BATCH = '''You are evaluating whether papers likely contain a figu
 Science topic: "{science_query}"
 {plot_type_line}
 
-Below are {n} papers. For each, decide if it likely contains a matching figure.
+Below are {n} papers numbered 1 to {n}. For each paper, decide if it likely contains a matching figure.
 
 {papers}
 
-Respond JSON array only, one object per paper in the same order:
-[{{"relevant": <true/false>, "confidence": <0.0-1.0>, "reason": "<one sentence>"}}, ...]'''
+CRITICAL: Respond with a JSON array of EXACTLY {n} objects, one per paper in the same order. No wrapper object, no markdown, no preamble. Output must start with `[` and end with `]`.
+
+Each object must have this shape:
+{{"relevant": true|false, "confidence": 0.0-1.0, "reason": "one sentence"}}
+
+Example for 2 papers:
+[{{"relevant": true, "confidence": 0.8, "reason": "..."}}, {{"relevant": false, "confidence": 0.3, "reason": "..."}}]'''
 
 EXPANSION_PROMPT = '''A researcher wants papers containing this specific figure: "{query}"
 
@@ -183,7 +169,8 @@ class PaperSearcher:
             log("  Semantic search via Pathfinder corpus...")
         return searcher.search(query, limit=50)
 
-    def expanded_search(self, query: str, client, model_id: str, prices: dict, tracker, max_tokens: int = 1000, log=None) -> list[dict]:
+    def expanded_search(self, query: str, client, model_id: str, prices: dict, tracker,
+                        max_tokens: int = 1000, log=None) -> list[dict]:
         def _log(msg):
             if log:
                 log(msg)
@@ -269,30 +256,10 @@ class PaperTriager:
         plot_line = f"Plot type: {spec['plot_type']}" if spec.get("plot_type") else ""
         scored = []
         for paper in papers:
-            prompt = TRIAGE_PROMPT_SINGLE.format(
-                science_query=spec.get("science_query") or "(unspecified)",
-                plot_type_line=plot_line,
-                title=paper.get("title", ""),
-                abstract=(paper.get("abstract") or "")[:800],
-            )
-            try:
-                response = self.client.messages.create(
-                    model=self.model_id,
-                    max_tokens=self.max_tokens,
-                    messages=[{"role": "user", "content": prompt}],
-                )
-                self.tracker.record(
-                    "triage", self.model_id, self.prices,
-                    response.usage.input_tokens, response.usage.output_tokens,
-                )
-                result = parse_json(response.content[0].text)
-                if isinstance(result, list) and result:
-                    result = result[0]
-                paper["_triage"] = result
-                if result.get("relevant"):
-                    scored.append(paper)
-            except Exception:
-                paper["_triage"] = {"relevant": False, "confidence": 0}
+            result = self._single_call(paper, plot_line, spec)
+            paper["_triage"] = result
+            if result.get("relevant"):
+                scored.append(paper)
 
         scored.sort(key=lambda p: -(p.get("citationCount") or 0) * 0.1
                                   - p["_triage"].get("confidence", 0))
@@ -301,41 +268,68 @@ class PaperTriager:
     def _triage_batched(self, papers: list[dict], spec: dict) -> list[dict]:
         plot_line = f"Plot type: {spec['plot_type']}" if spec.get("plot_type") else ""
         scored = []
+
         for i in range(0, len(papers), self.batch_size):
             batch = papers[i:i + self.batch_size]
-            batch_text = "\n\n".join(
-                f"Paper {j+1}:\nTitle: {p.get('title','')}\nAbstract: {(p.get('abstract') or '')[:600]}"
-                for j, p in enumerate(batch)
-            )
-            prompt = TRIAGE_PROMPT_BATCH.format(
-                science_query=spec.get("science_query") or "(unspecified)",
-                plot_type_line=plot_line,
-                n=len(batch),
-                papers=batch_text,
-            )
-            try:
-                response = self.client.messages.create(
-                    model=self.model_id,
-                    max_tokens=self.max_tokens,
-                    messages=[{"role": "user", "content": prompt}],
-                )
-                self.tracker.record(
-                    "triage_batch", self.model_id, self.prices,
-                    response.usage.input_tokens, response.usage.output_tokens,
-                )
-                results = parse_json(response.content[0].text)
-                if isinstance(results, dict):
-                    results = [results]
-                for paper, result in zip(batch, results):
-                    if isinstance(result, list) and result:
-                        result = result[0]
-                    paper["_triage"] = result
-                    if result.get("relevant"):
-                        scored.append(paper)
-            except Exception:
-                for paper in batch:
-                    paper["_triage"] = {"relevant": False, "confidence": 0}
+            batch_results = self._try_batch(batch, plot_line, spec)
+            if batch_results is None:
+                # Batch failed — fall back to single calls so we don't lose everyone
+                batch_results = [self._single_call(p, plot_line, spec) for p in batch]
+            for paper, result in zip(batch, batch_results):
+                paper["_triage"] = result
+                if result.get("relevant"):
+                    scored.append(paper)
 
         scored.sort(key=lambda p: -(p.get("citationCount") or 0) * 0.1
                                   - p["_triage"].get("confidence", 0))
         return scored
+
+    def _try_batch(self, batch: list[dict], plot_line: str, spec: dict):
+        batch_text = "\n\n".join(
+            f"Paper {j+1}:\nTitle: {p.get('title','')}\nAbstract: {(p.get('abstract') or '')[:600]}"
+            for j, p in enumerate(batch)
+        )
+        prompt = TRIAGE_PROMPT_BATCH.format(
+            science_query=spec.get("science_query") or "(unspecified)",
+            plot_type_line=plot_line,
+            n=len(batch),
+            papers=batch_text,
+        )
+        try:
+            response = self.client.messages.create(
+                model=self.model_id,
+                max_tokens=max(self.max_tokens, 200 * len(batch)),
+                messages=[{"role": "user", "content": prompt}],
+            )
+            self.tracker.record(
+                "triage_batch", self.model_id, self.prices,
+                response.usage.input_tokens, response.usage.output_tokens,
+            )
+            results = parse_batch_results(response.content[0].text, expected_n=len(batch))
+            return results if len(results) == len(batch) else None
+        except Exception:
+            return None
+
+    def _single_call(self, paper: dict, plot_line: str, spec: dict) -> dict:
+        prompt = TRIAGE_PROMPT_SINGLE.format(
+            science_query=spec.get("science_query") or "(unspecified)",
+            plot_type_line=plot_line,
+            title=paper.get("title", ""),
+            abstract=(paper.get("abstract") or "")[:800],
+        )
+        try:
+            response = self.client.messages.create(
+                model=self.model_id,
+                max_tokens=self.max_tokens,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            self.tracker.record(
+                "triage", self.model_id, self.prices,
+                response.usage.input_tokens, response.usage.output_tokens,
+            )
+            result = parse_json(response.content[0].text)
+            if isinstance(result, list) and result:
+                result = result[0]
+            return result
+        except Exception:
+            return {"relevant": False, "confidence": 0}

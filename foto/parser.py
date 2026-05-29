@@ -126,3 +126,27 @@ class InputParser:
         spec["has_sketch"] = sketch_bytes is not None
         spec["sketch_bytes"] = sketch_bytes
         return spec
+
+
+def parse_batch_results(text: str, expected_n: int) -> list:
+    """Extract a list of N results from an LLM batch response.
+    Handles raw arrays, dict-wrapped arrays ({results: [...]}, {papers: [...]}),
+    numeric-keyed dicts ({"1": {...}, "2": {...}}), and single-dict-in-list."""
+    parsed = parse_json(text)
+
+    if isinstance(parsed, list):
+        return parsed
+
+    if isinstance(parsed, dict):
+        for key in ("results", "papers", "figures", "items", "data", "scores"):
+            if key in parsed and isinstance(parsed[key], list):
+                return parsed[key]
+
+        if all(k.isdigit() or k.startswith("paper") or k.startswith("figure")
+               for k in parsed.keys()):
+            return list(parsed.values())
+
+        if expected_n == 1:
+            return [parsed]
+
+    raise ValueError(f"Could not extract list of {expected_n} from response")

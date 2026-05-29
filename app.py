@@ -284,7 +284,7 @@ if run_btn:
                 triager = PaperTriager(
                     primary_client, primary_cfg.model_id, primary_cfg.prices, tracker,
                     max_tokens=primary_cfg.triage_max_tokens,
-                    batch_size=primary_cfg.batch_size,
+                    batch_size=primary_cfg.score_batch_size,
                 )
                 triaged = triager.triage(all_papers, spec)
                 top = triaged[:num_papers]

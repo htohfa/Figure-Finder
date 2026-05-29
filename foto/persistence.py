@@ -1,62 +1,65 @@
-import streamlit as st
-import gspread
-from google.oauth2.service_account import Credentials
-from datetime import datetime
+import json
+from pathlib import Path
+from datetime import datetime, timezone
 
 
-SCOPES = [
-    "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive",
-]
-
-HEADERS = ["timestamp", "query", "n_papers", "n_matches", "cost", "rating"]
+STATS_PATH = Path("/data/foto-stats.json")
+FALLBACK_PATH = Path.home() / ".cache" / "foto" / "foto-stats.json"
 
 
-def _get_sheet():
-    creds = Credentials.from_service_account_info(
-        st.secrets["gcp_service_account"], scopes=SCOPES
-    )
-    client = gspread.authorize(creds)
-    sheet_id = st.secrets["sheets"]["sheet_id"]
-    return client.open_by_key(sheet_id).sheet1
+def _stats_file() -> Path:
+    if STATS_PATH.parent.exists():
+        return STATS_PATH
+    FALLBACK_PATH.parent.mkdir(parents=True, exist_ok=True)
+    return FALLBACK_PATH
+
+
+def _read() -> dict:
+    path = _stats_file()
+    if not path.exists():
+        return {"searches": 0, "ratings": [], "log": []}
+    try:
+        return json.loads(path.read_text())
+    except Exception:
+        return {"searches": 0, "ratings": [], "log": []}
+
+
+def _write(data: dict):
+    try:
+        _stats_file().write_text(json.dumps(data, indent=2))
+    except Exception:
+        pass
 
 
 def load_stats() -> dict:
-    try:
-        sheet = _get_sheet()
-        rows = sheet.get_all_records()
-        ratings = [r["rating"] for r in rows if r.get("rating")]
-        return {
-            "searches": len(rows),
-            "ratings": ratings,
-        }
-    except Exception:
-        return {"searches": 0, "ratings": []}
+    data = _read()
+    return {
+        "searches": data.get("searches", 0),
+        "ratings": data.get("ratings", []),
+    }
 
 
 def log_search(query: str, n_papers: int, n_matches: int, cost: float):
-    try:
-        sheet = _get_sheet()
-        if sheet.row_count == 1 and not sheet.row_values(1):
-            sheet.append_row(HEADERS)
-        sheet.append_row([
-            datetime.utcnow().isoformat(),
-            query, n_papers, n_matches, round(cost, 4), "",
-        ])
-    except Exception:
-        pass
+    data = _read()
+    data["searches"] = data.get("searches", 0) + 1
+    log_entries = data.setdefault("log", [])
+    log_entries.append({
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "query": query,
+        "n_papers": n_papers,
+        "n_matches": n_matches,
+        "cost": round(cost, 4),
+        "rating": None,
+    })
+    _write(data)
 
 
 def log_rating(rating: int):
-    try:
-        sheet = _get_sheet()
-        all_rows = sheet.get_all_values()
-        # Skip header row, find last data row with empty rating
-        for i in range(len(all_rows) - 1, 0, -1):
-            row = all_rows[i]
-            # Check if this row has search data but no rating
-            if row[0] and (len(row) < 6 or row[5] == ""):
-                sheet.update_cell(i + 1, 6, rating)
-                return
-    except Exception:
-        pass
+    data = _read()
+    data.setdefault("ratings", []).append(rating)
+    log_entries = data.get("log", [])
+    for entry in reversed(log_entries):
+        if entry.get("rating") is None:
+            entry["rating"] = rating
+            break
+    _write(data)

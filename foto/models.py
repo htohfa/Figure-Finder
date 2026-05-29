@@ -28,7 +28,7 @@ MODEL_REGISTRY = [
         triage_max_tokens=150,
         score_max_tokens=400,
         verify_max_tokens=500,
-        batch_size=10,
+        batch_size= 5,
         estimated_time="~2 min",
     ),
     ModelConfig(
@@ -41,7 +41,7 @@ MODEL_REGISTRY = [
         triage_max_tokens=150,
         score_max_tokens=400,
         verify_max_tokens=500,
-        batch_size=10,
+        batch_size= 5,
         estimated_time="~1 min",
     ),
     ModelConfig(

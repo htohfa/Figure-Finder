@@ -48,16 +48,21 @@ Science topic: "{science_query}"
 
 Below are {n} figures numbered 1 to {n}, each with its caption. Score how well each matches.
 
-SCORING:
-Science match is the dominant factor. Wrong topic never scores above 0.4.
-Plot type similarity is a gradient (strong/partial/weak). Semantically equivalent axis labels match (redshift ≈ z).
+SCORING GUIDANCE:
+Science match is the dominant factor. A figure on the wrong scientific topic should never score above 0.4.
+If a plot type is specified, treat similarity as a gradient:
+  Strong match: scatter ↔ scatter+line ↔ error_bar; contour ↔ banana_contour ↔ corner_plot; heatmap ↔ image_with_overlay
+  Partial match (~0.5 weight): scatter ↔ histogram; line ↔ power_spectrum; any specific type ↔ multi_panel
+  Weak/no match: scatter/line vs contour; histogram vs corner_plot
+If specific axes are specified: semantically equivalent labels match (redshift ≈ z; Omega_m ≈ Ω_m).
 
 {figures}
 
 CRITICAL: Respond with a JSON array of EXACTLY {n} objects, one per figure in the same order. No wrapper object, no markdown, no preamble. Output must start with `[` and end with `]`.
 
 Each object:
-{{"matches_request": true|false, "confidence": 0.0-1.0, "plot_type": "...", "science_match": true|false, "plot_type_match": "strong"|"partial"|"weak"|"not_specified", "what_is_plotted": "one sentence", "reason": "one sentence"}}'''
+{{"matches_request": true|false, "confidence": 0.0-1.0, "plot_type": "<observed plot type>", "science_match": true|false, "plot_type_match": "strong"|"partial"|"weak"|"not_specified", "what_is_plotted": "one sentence", "reason": "one sentence"}}'''
+
 
 VERIFY_PROMPT = '''A researcher is looking for a scientific figure.
 

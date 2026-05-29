@@ -1,11 +1,12 @@
-import time
 from typing import Optional
 
 import fitz
 import requests
 import streamlit as st
 
-from .parser import encode_image, parse_json
+from .parser import encode_image, parse_json, parse_batch_results
+
+fitz.TOOLS.mupdf_display_errors(False)
 
 
 PRIMARY_PROMPT = '''A researcher is looking for a scientific figure.
@@ -45,16 +46,18 @@ Science topic: "{science_query}"
 {axis_lines}
 {sketch_line}
 
-Below are {n} figures with captions. Score each one for how well it matches the description.
+Below are {n} figures numbered 1 to {n}, each with its caption. Score how well each matches.
 
-SCORING GUIDANCE:
-Science match is the dominant factor — wrong topic never scores above 0.4.
+SCORING:
+Science match is the dominant factor. Wrong topic never scores above 0.4.
 Plot type similarity is a gradient (strong/partial/weak). Semantically equivalent axis labels match (redshift ≈ z).
 
 {figures}
 
-Respond JSON array only, one object per figure in order:
-[{{"matches_request": <true/false>, "confidence": <0-1>, "plot_type": "<...>", "science_match": <true/false>, "plot_type_match": <"strong"|"partial"|"weak"|"not_specified">, "what_is_plotted": "<one sentence>", "reason": "<one sentence>"}}, ...]'''
+CRITICAL: Respond with a JSON array of EXACTLY {n} objects, one per figure in the same order. No wrapper object, no markdown, no preamble. Output must start with `[` and end with `]`.
+
+Each object:
+{{"matches_request": true|false, "confidence": 0.0-1.0, "plot_type": "...", "science_match": true|false, "plot_type_match": "strong"|"partial"|"weak"|"not_specified", "what_is_plotted": "one sentence", "reason": "one sentence"}}'''
 
 VERIFY_PROMPT = '''A researcher is looking for a scientific figure.
 
@@ -286,10 +289,17 @@ class FigureScorer:
         results = []
         for i in range(0, len(figures), self.batch_size):
             batch = figures[i:i + self.batch_size]
-            results.extend(self._score_one_batch(batch, spec))
+            batch_results = self._try_score_batch(batch, spec)
+            if batch_results is None:
+                # Batch failed — fall back to single calls so we don't drop everyone
+                batch_results = [self.score(fig, spec) for fig in batch]
+            else:
+                for fig, result in zip(batch, batch_results):
+                    fig["_primary"] = result
+            results.extend(batch_results)
         return results
 
-    def _score_one_batch(self, batch: list[dict], spec: dict) -> list[dict]:
+    def _try_score_batch(self, batch: list[dict], spec: dict):
         plot_type_line = f"Required plot type: {spec['plot_type']}" if spec.get("plot_type") else ""
         sketch_line = "- Structural similarity to the provided sketch" if spec.get("has_sketch") else ""
 
@@ -323,30 +333,18 @@ class FigureScorer:
 
         try:
             response = self.client.messages.create(
-                model=self.model_id, max_tokens=self.score_max_tokens,
+                model=self.model_id,
+                max_tokens=max(self.score_max_tokens, 250 * len(batch)),
                 messages=[{"role": "user", "content": content}],
             )
             self.tracker.record(
                 "score_batch", self.model_id, self.prices,
                 response.usage.input_tokens, response.usage.output_tokens,
             )
-            parsed = parse_json(response.content[0].text)
-            if isinstance(parsed, dict):
-                parsed = [parsed]
-            results = []
-            for fig, result in zip(batch, parsed):
-                if isinstance(result, list) and result:
-                    result = result[0]
-                fig["_primary"] = result
-                results.append(result)
-            return results
+            parsed = parse_batch_results(response.content[0].text, expected_n=len(batch))
+            return parsed if len(parsed) == len(batch) else None
         except Exception:
-            results = []
-            for fig in batch:
-                fallback = {"matches_request": False, "confidence": 0}
-                fig["_primary"] = fallback
-                results.append(fallback)
-            return results
+            return None
 
     def verify(self, figure: dict, spec: dict) -> dict:
         prompt = self._format_prompt(VERIFY_PROMPT, figure, spec)

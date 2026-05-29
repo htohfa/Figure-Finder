@@ -40,24 +40,47 @@ def encode_image(data: bytes, max_dim: int = 768) -> str:
     return base64.standard_b64encode(buf.getvalue()).decode()
 
 
-def parse_json(text: str) -> dict:
-    return json.loads(text.strip().replace("```json", "").replace("```", "").strip())
+def parse_json(text: str):
+    s = text.strip().replace("```json", "").replace("```", "").strip()
+    start = -1
+    for i, ch in enumerate(s):
+        if ch in "{[":
+            start = i
+            break
+    if start == -1:
+        raise ValueError(f"No JSON found: {text[:200]}")
+    end = -1
+    for i in range(len(s) - 1, -1, -1):
+        if s[i] in "}]":
+            end = i
+            break
+    if end == -1 or end < start:
+        raise ValueError(f"Unterminated JSON: {text[:200]}")
+    return json.loads(s[start:end + 1])
 
 
 class InputParser:
-    def __init__(self, client, model: str, tracker):
+    def __init__(self, client, model_id: str, prices: dict, tracker, max_tokens: int = 1000):
         self.client = client
-        self.model = model
+        self.model_id = model_id
+        self.prices = prices
         self.tracker = tracker
+        self.max_tokens = max_tokens
 
     def _call(self, messages: list) -> dict:
         response = self.client.messages.create(
-            model=self.model,
-            max_tokens=300,
+            model=self.model_id,
+            max_tokens=self.max_tokens,
             messages=messages,
         )
-        self.tracker.record("parse_input", self.model, response)
-        return parse_json(response.content[0].text)
+        self.tracker.record(
+            "parse_input", self.model_id, self.prices,
+            response.usage.input_tokens, response.usage.output_tokens,
+        )
+        result = parse_json(response.content[0].text)
+        if isinstance(result, list) and result:
+            result = result[0]
+        return result
 
     def _from_text(self, text: str) -> dict:
         return self._call([{

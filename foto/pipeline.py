@@ -38,6 +38,24 @@ Respond JSON only:
   "reason": "<one sentence>"
 }}'''
 
+PRIMARY_PROMPT_BATCH = '''A researcher is looking for a scientific figure.
+
+Science topic: "{science_query}"
+{plot_type_line}
+{axis_lines}
+{sketch_line}
+
+Below are {n} figures with captions. Score each one for how well it matches the description.
+
+SCORING GUIDANCE:
+Science match is the dominant factor — wrong topic never scores above 0.4.
+Plot type similarity is a gradient (strong/partial/weak). Semantically equivalent axis labels match (redshift ≈ z).
+
+{figures}
+
+Respond JSON array only, one object per figure in order:
+[{{"matches_request": <true/false>, "confidence": <0-1>, "plot_type": "<...>", "science_match": <true/false>, "plot_type_match": <"strong"|"partial"|"weak"|"not_specified">, "what_is_plotted": "<one sentence>", "reason": "<one sentence>"}}, ...]'''
+
 VERIFY_PROMPT = '''A researcher is looking for a scientific figure.
 
 Science topic: "{science_query}"
@@ -68,8 +86,6 @@ CAPTION_STOPWORDS = {
 
 
 class PDFStore:
-    """Holds PDFs in session memory so the same paper isn't re-fetched."""
-
     @staticmethod
     def get(paper_id: str) -> Optional[bytes]:
         return st.session_state.pdf_cache.get(paper_id)
@@ -197,10 +213,35 @@ class FigureExtractor:
 
 
 class FigureScorer:
-    def __init__(self, client, model: str, tracker):
+    def __init__(self, client, model_id: str, prices: dict, tracker,
+                 score_max_tokens: int = 600, verify_max_tokens: int = 800,
+                 batch_size: int = 1):
         self.client = client
-        self.model = model
+        self.model_id = model_id
+        self.prices = prices
         self.tracker = tracker
+        self.score_max_tokens = score_max_tokens
+        self.verify_max_tokens = verify_max_tokens
+        self.batch_size = batch_size
+
+    def _format_axis_lines(self, spec: dict) -> str:
+        out = ""
+        if spec.get("axis_x"):
+            out += f"Required x-axis: {spec['axis_x']}\n"
+        if spec.get("axis_y"):
+            out += f"Required y-axis: {spec['axis_y']}"
+        return out
+
+    def _format_prompt(self, template: str, figure: dict, spec: dict) -> str:
+        plot_type_line = f"Required plot type: {spec['plot_type']}" if spec.get("plot_type") else ""
+        sketch_line = "- Structural similarity to the provided sketch" if spec.get("has_sketch") else ""
+        return template.format(
+            science_query=spec.get("science_query") or "(not specified)",
+            plot_type_line=plot_type_line,
+            axis_lines=self._format_axis_lines(spec),
+            sketch_line=sketch_line,
+            caption=figure.get("caption") or "(no caption)",
+        )
 
     def _build_content(self, figure: dict, spec: dict, prompt_text: str) -> list:
         content = []
@@ -217,48 +258,111 @@ class FigureScorer:
         content.append({"type": "text", "text": prompt_text})
         return content
 
-    def _format_prompt(self, template: str, figure: dict, spec: dict) -> str:
-        plot_type_line = f"Required plot type: {spec['plot_type']}" if spec.get("plot_type") else ""
-        axis_lines = ""
-        if spec.get("axis_x"):
-            axis_lines += f"Required x-axis: {spec['axis_x']}\n"
-        if spec.get("axis_y"):
-            axis_lines += f"Required y-axis: {spec['axis_y']}"
-        sketch_line = "- Structural similarity to the provided sketch" if spec.get("has_sketch") else ""
-        return template.format(
-            science_query=spec.get("science_query") or "(not specified)",
-            plot_type_line=plot_type_line,
-            axis_lines=axis_lines,
-            sketch_line=sketch_line,
-            caption=figure.get("caption") or "(no caption)",
-        )
-
     def score(self, figure: dict, spec: dict) -> dict:
         prompt = self._format_prompt(PRIMARY_PROMPT, figure, spec)
         content = self._build_content(figure, spec, prompt)
         try:
             response = self.client.messages.create(
-                model=self.model, max_tokens=400,
+                model=self.model_id, max_tokens=self.score_max_tokens,
                 messages=[{"role": "user", "content": content}],
             )
-            self.tracker.record("score_primary", self.model, response)
+            self.tracker.record(
+                "score_primary", self.model_id, self.prices,
+                response.usage.input_tokens, response.usage.output_tokens,
+            )
             result = parse_json(response.content[0].text)
+            if isinstance(result, list) and result:
+                result = result[0]
             figure["_primary"] = result
             return result
         except Exception:
             figure["_primary"] = {"matches_request": False, "confidence": 0}
             return figure["_primary"]
 
+    def score_batch(self, figures: list[dict], spec: dict) -> list[dict]:
+        if self.batch_size <= 1 or len(figures) == 1:
+            return [self.score(fig, spec) for fig in figures]
+
+        results = []
+        for i in range(0, len(figures), self.batch_size):
+            batch = figures[i:i + self.batch_size]
+            results.extend(self._score_one_batch(batch, spec))
+        return results
+
+    def _score_one_batch(self, batch: list[dict], spec: dict) -> list[dict]:
+        plot_type_line = f"Required plot type: {spec['plot_type']}" if spec.get("plot_type") else ""
+        sketch_line = "- Structural similarity to the provided sketch" if spec.get("has_sketch") else ""
+
+        figures_text = "\n\n".join(
+            f"Figure {j+1} caption: {fig.get('caption') or '(no caption)'}"
+            for j, fig in enumerate(batch)
+        )
+        prompt = PRIMARY_PROMPT_BATCH.format(
+            science_query=spec.get("science_query") or "(not specified)",
+            plot_type_line=plot_type_line,
+            axis_lines=self._format_axis_lines(spec),
+            sketch_line=sketch_line,
+            n=len(batch),
+            figures=figures_text,
+        )
+
+        content = []
+        if spec.get("has_sketch") and spec.get("sketch_bytes"):
+            content.append({"type": "text", "text": "Researcher's sketch:"})
+            content.append({"type": "image", "source": {
+                "type": "base64", "media_type": "image/png",
+                "data": encode_image(spec["sketch_bytes"]),
+            }})
+        for j, fig in enumerate(batch):
+            content.append({"type": "text", "text": f"Figure {j+1}:"})
+            content.append({"type": "image", "source": {
+                "type": "base64", "media_type": "image/png",
+                "data": encode_image(fig["image_bytes"]),
+            }})
+        content.append({"type": "text", "text": prompt})
+
+        try:
+            response = self.client.messages.create(
+                model=self.model_id, max_tokens=self.score_max_tokens,
+                messages=[{"role": "user", "content": content}],
+            )
+            self.tracker.record(
+                "score_batch", self.model_id, self.prices,
+                response.usage.input_tokens, response.usage.output_tokens,
+            )
+            parsed = parse_json(response.content[0].text)
+            if isinstance(parsed, dict):
+                parsed = [parsed]
+            results = []
+            for fig, result in zip(batch, parsed):
+                if isinstance(result, list) and result:
+                    result = result[0]
+                fig["_primary"] = result
+                results.append(result)
+            return results
+        except Exception:
+            results = []
+            for fig in batch:
+                fallback = {"matches_request": False, "confidence": 0}
+                fig["_primary"] = fallback
+                results.append(fallback)
+            return results
+
     def verify(self, figure: dict, spec: dict) -> dict:
         prompt = self._format_prompt(VERIFY_PROMPT, figure, spec)
         content = self._build_content(figure, spec, prompt)
         try:
             response = self.client.messages.create(
-                model=self.model, max_tokens=500,
+                model=self.model_id, max_tokens=self.verify_max_tokens,
                 messages=[{"role": "user", "content": content}],
             )
-            self.tracker.record("verify", self.model, response)
+            self.tracker.record(
+                "verify", self.model_id, self.prices,
+                response.usage.input_tokens, response.usage.output_tokens,
+            )
             result = parse_json(response.content[0].text)
+            if isinstance(result, list) and result:
+                result = result[0]
             figure["_verify"] = result
             return result
         except Exception:

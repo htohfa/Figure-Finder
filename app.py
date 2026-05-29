@@ -280,7 +280,7 @@ if run_btn:
                     )
                 log(f"✓ {len(all_papers)} unique papers found")
 
-                log(f"⟳ Triaging papers (batches of {primary_cfg.batch_size})...")
+                log(f"⟳ Triaging papers (please wait)...")
                 triager = PaperTriager(
                     primary_client, primary_cfg.model_id, primary_cfg.prices, tracker,
                     max_tokens=primary_cfg.triage_max_tokens,
@@ -319,7 +319,7 @@ if run_btn:
                 filtered = extractor.caption_filter(all_figures, query)
                 log(f"  {len(filtered)} figures after caption filter (from {len(all_figures)} total)")
 
-                log(f"⟳ Scoring {len(filtered)} figures (batches of {primary_cfg.batch_size})...")
+                log(f"⟳ Scoring {len(filtered)} figures...")
                 scorer = FigureScorer(
                     primary_client, primary_cfg.model_id, primary_cfg.prices, tracker,
                     score_max_tokens=primary_cfg.score_max_tokens,

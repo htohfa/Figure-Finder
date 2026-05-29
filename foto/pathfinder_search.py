@@ -1,37 +1,38 @@
 """Semantic search over the Pathfinder astronomy corpus (Iyer et al. 2024,
-arXiv:2408.01556).
-
-The corpus ships with pre-computed text-embedding-3-small vectors for each
-paper. Queries are embedded with the same OpenAI model and matched via FAISS
-on the embedding column. Output format matches the rest of foto's search
-layer so it slots in interchangeably with keyword search.
-"""
+arXiv:2408.01556). Reads pre-computed text-embedding-3-small vectors from
+either the mounted HF bucket (/data/data) or a local cache, builds a FAISS
+index over the embed column, and returns ranked papers in foto's standard
+paper-dict format."""
 import os
 from pathlib import Path
 from typing import Optional
 
 import numpy as np
 import streamlit as st
-from datasets import load_from_disk, load_dataset
+from datasets import load_dataset, load_from_disk
 
 
-DATASET_NAME = "kiyer/pathfinder_arxiv_data"
 EMBEDDING_MODEL = "text-embedding-3-small"
+HF_DATASET_NAME = "kiyer/pathfinder_arxiv_data"
 
-# First-run download lands here; subsequent runs load_from_disk straight from cache
-DATA_DIR = Path.home() / ".cache" / "foto" / "pathfinder_data"
+BUCKET_PATH = Path("/data/data")
+LOCAL_CACHE = Path.home() / ".cache" / "foto" / "pathfinder_data"
 
 
-@st.cache_resource(show_spinner="Loading Pathfinder corpus (~5 GB on first run)...")
+@st.cache_resource(show_spinner="Loading Pathfinder corpus...")
 def load_pathfinder_corpus():
-    """Returns the dataset with a FAISS index attached to the embed column.
-    Downloads from HF on first call, reuses local cache afterward."""
-    if not DATA_DIR.exists():
-        DATA_DIR.mkdir(parents=True, exist_ok=True)
-        ds = load_dataset(DATASET_NAME, split="train")
-        ds.save_to_disk(str(DATA_DIR))
+    if BUCKET_PATH.exists():
+        ds = load_dataset(
+            "parquet",
+            data_files=str(BUCKET_PATH / "*.parquet"),
+            split="train",
+        )
+    elif LOCAL_CACHE.exists():
+        ds = load_from_disk(str(LOCAL_CACHE))
     else:
-        ds = load_from_disk(str(DATA_DIR))
+        LOCAL_CACHE.parent.mkdir(parents=True, exist_ok=True)
+        ds = load_dataset(HF_DATASET_NAME, split="train")
+        ds.save_to_disk(str(LOCAL_CACHE))
 
     if not ds.is_index_initialized("embed"):
         ds.add_faiss_index(column="embed")
@@ -40,13 +41,11 @@ def load_pathfinder_corpus():
 
 
 def make_embedder(openai_key: str):
-    """Returns a function that embeds text into a 1536-dim vector with
-    text-embedding-3-small. Key is user-supplied so this is not cached."""
     from openai import OpenAI
 
     if not openai_key:
         raise RuntimeError(
-            "Pathfinder uses text-embedding-3-small from OpenAI. Set an "
+            "Pathfinder uses text-embedding-3-small from OpenAI. Provide an "
             "OpenAI API key in the sidebar (get one at platform.openai.com)."
         )
     client = OpenAI(api_key=openai_key)
@@ -59,7 +58,6 @@ def make_embedder(openai_key: str):
 
 
 def _row_to_paper(row: dict, similarity: float) -> dict:
-    """Map a Pathfinder dataset row into foto's paper dict shape."""
     arxiv_id = row.get("arxiv_id") or ""
 
     year = None
@@ -71,7 +69,6 @@ def _row_to_paper(row: dict, similarity: float) -> dict:
             s = str(d)
             year = int(s[:4]) if s[:4].isdigit() else None
 
-    # Pathfinder stores authors as a list of strings; foto wants [{"name": ...}, ...]
     raw_authors = row.get("authors") or []
     if raw_authors and isinstance(raw_authors[0], str):
         authors = [{"name": a} for a in raw_authors]
@@ -93,25 +90,19 @@ def _row_to_paper(row: dict, similarity: float) -> dict:
 
 
 class PathfinderSearcher:
-    """Semantic retrieval over the Pathfinder corpus.
-    Output format matches PaperSearcher.search_s2 so downstream code is unchanged."""
-
     def __init__(self, openai_key: str):
         self.dataset = load_pathfinder_corpus()
         self.embed = make_embedder(openai_key)
 
     def search(self, query: str, limit: int = 50) -> list[dict]:
         query_vec = self.embed(query)
-
         tmp = self.dataset.search("embed", query_vec, k=limit)
 
         results = []
         for idx, dist in zip(tmp.indices, tmp.scores):
             row = self.dataset[int(idx)]
-            # Skip papers with no arxiv_id — the download step needs it
             if not row.get("arxiv_id"):
                 continue
-            # Convert FAISS distance to similarity, matching Pathfinder's convention
             similarity = 1.0 / (1.0 + float(dist))
             results.append(_row_to_paper(row, similarity))
 

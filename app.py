@@ -324,7 +324,7 @@ if run_btn:
                     primary_client, primary_cfg.model_id, primary_cfg.prices, tracker,
                     score_max_tokens=primary_cfg.score_max_tokens,
                     verify_max_tokens=primary_cfg.verify_max_tokens,
-                    batch_size=primary_cfg.batch_size,
+                    batch_size=primary_cfg.score_batch_size,
                 )
                 results = scorer.score_batch(filtered, spec)
                 primary_matches = [fig for fig, result in zip(filtered, results)

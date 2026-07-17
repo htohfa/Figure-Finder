@@ -12,7 +12,7 @@ Reproduces the benchmark tables in the FOTO paper from scratch. Run order:
 | 5 | `embedder_comparison.py` | Table 3 (bge vs openai, query prefix applied) | OPENAI_API_KEY |
 | 6 | `verify_bench.py` | verification table (vision/text/deepseek) | ANTHROPIC_API_KEY, DEEPSEEK_API_KEY, HF_TOKEN |
 
-Commands used for the paper:
+To run:
 
 ```bash
 python census.py

@@ -8,4 +8,11 @@ license: mit
 ---
 # FOTO
 
-Find scientific figures matching a natural-language description, sketch, or both. Semantic retrieval via the Pathfinder corpus (Iyer et al. 2024, [arXiv:2408.01556](https://arxiv.org/abs/2408.01556)). Users supply their own API keys for Anthropic, Gemini, OpenAI, or DeepSeek.
+FOTO Huggingface Space deployment
+Caption-first figure retrieval over 482,750 astro-ph figures (paper-matching pipeline: bge query embedding -> FAISS index -> ArxivCap figure fetch -> LLM verification).
+Files: app.py, foto_retrieval.py, foto_figures.py, foto_verify.py, requirements.txt.
+Setup on a HF Space (Streamlit SDK)
+
+
+Cold start downloads the index (~1.5 GB from htohfa/foto-index) and thebge model (~0.4 GB); allow a few minutes on first boot. CPU basic is fine.\
+Users paste their own verification key (Anthropic / OpenAI / DeepSeek); retrieval itself is local and free.

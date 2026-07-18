@@ -1,3 +1,15 @@
+---
+title: FOTO
+emoji: 🔭
+colorFrom: gray
+colorTo: yellow
+sdk: streamlit
+sdk_version: "1.44.0"
+python_version: "3.11"
+app_file: app.py
+pinned: false
+---
+
 # FOTO
 
 FOTO Huggingface Space deployment

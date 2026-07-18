@@ -1,11 +1,3 @@
----
-title: Foto
-emoji: 🔭
-sdk: docker
-app_port: 8501
-pinned: false
-license: mit
----
 # FOTO
 
 FOTO Huggingface Space deployment

@@ -1,13 +1,10 @@
 ---
-title: FOTO
+title: Foto
 emoji: 🔭
-colorFrom: gray
-colorTo: yellow
-sdk: streamlit
-sdk_version: "1.44.0"
-python_version: "3.11"
-app_file: app.py
+sdk: docker
+app_port: 8501
 pinned: false
+license: mit
 ---
 
 # FOTO
